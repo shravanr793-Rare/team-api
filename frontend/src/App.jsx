@@ -1,8 +1,10 @@
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   Activity,
   ArrowUpRight,
+  ArrowLeft,
+  ArrowRight,
   BookOpen,
   CheckCircle2,
   CircleHelp,
@@ -55,10 +57,122 @@ const endpoints = [
   },
 ]
 
+const pageToHash = {
+  'Overview': '#overview',
+  'API Playground': '#playground',
+  'Documentation': '#documentation',
+  'Settings': '#settings',
+  'Help & Support': '#help',
+}
+
+const hashToPage = Object.fromEntries(
+  Object.entries(pageToHash).map(([page, hash]) => [hash, page]),
+)
+
+function getPageFromLocation() {
+  return hashToPage[window.location.hash] || 'Overview'
+}
+
 function App() {
-  const [activePage, setActivePage] = useState('Overview')
+  const initialPage = getPageFromLocation()
+  const initialHistoryState = window.history.state
+  const initialStack = Array.isArray(initialHistoryState?.historyStack)
+    ? initialHistoryState.historyStack
+    : [initialPage]
+  const initialIndex = Number.isInteger(initialHistoryState?.historyIndex)
+    ? Math.min(initialHistoryState.historyIndex, initialStack.length - 1)
+    : initialStack.length - 1
+
+  const [activePage, setActivePage] = useState(initialPage)
+  const [canGoBack, setCanGoBack] = useState(initialIndex > 0)
+  const [canGoForward, setCanGoForward] = useState(initialIndex < initialStack.length - 1)
+  const historyStackRef = useRef(initialStack)
+  const historyIndexRef = useRef(initialIndex)
   const [backendStatus, setBackendStatus] = useState('checking')
   const [backendVersion, setBackendVersion] = useState(null)
+
+  function updateHistoryButtons(stack, index) {
+    setCanGoBack(index > 0)
+    setCanGoForward(index < stack.length - 1)
+  }
+
+  function navigateTo(page) {
+    if (!pageToHash[page] || page === activePage) return
+
+    const nextStack = historyStackRef.current.slice(0, historyIndexRef.current + 1)
+    nextStack.push(page)
+    const nextIndex = nextStack.length - 1
+
+    historyStackRef.current = nextStack
+    historyIndexRef.current = nextIndex
+
+    window.history.pushState(
+      { page, historyStack: nextStack, historyIndex: nextIndex },
+      '',
+      pageToHash[page],
+    )
+
+    setActivePage(page)
+    updateHistoryButtons(nextStack, nextIndex)
+  }
+
+  function goBack() {
+    if (canGoBack) window.history.back()
+  }
+
+  function goForward() {
+    if (canGoForward) window.history.forward()
+  }
+
+  useEffect(() => {
+    const currentPage = getPageFromLocation()
+    const currentState = window.history.state
+
+    if (
+      !currentState ||
+      !Array.isArray(currentState.historyStack) ||
+      !Number.isInteger(currentState.historyIndex)
+    ) {
+      const startingStack = [currentPage]
+      historyStackRef.current = startingStack
+      historyIndexRef.current = 0
+      window.history.replaceState(
+        { page: currentPage, historyStack: startingStack, historyIndex: 0 },
+        '',
+        pageToHash[currentPage],
+      )
+      setActivePage(currentPage)
+      updateHistoryButtons(startingStack, 0)
+    } else {
+      const restoredStack = currentState.historyStack
+      const restoredIndex = Math.min(
+        currentState.historyIndex,
+        restoredStack.length - 1,
+      )
+      historyStackRef.current = restoredStack
+      historyIndexRef.current = restoredIndex
+      setActivePage(currentState.page || currentPage)
+      updateHistoryButtons(restoredStack, restoredIndex)
+    }
+
+    function handlePopState(event) {
+      const page = event.state?.page || getPageFromLocation()
+      const stack = Array.isArray(event.state?.historyStack)
+        ? event.state.historyStack
+        : historyStackRef.current
+      const index = Number.isInteger(event.state?.historyIndex)
+        ? event.state.historyIndex
+        : Math.max(0, stack.lastIndexOf(page))
+
+      historyStackRef.current = stack
+      historyIndexRef.current = index
+      setActivePage(page)
+      updateHistoryButtons(stack, index)
+    }
+
+    window.addEventListener('popstate', handlePopState)
+    return () => window.removeEventListener('popstate', handlePopState)
+  }, [])
 
   useEffect(() => {
     async function checkBackend() {
@@ -119,7 +233,7 @@ function App() {
             {navigation.map(({ name, icon: Icon }) => (
               <button
                 key={name}
-                onClick={() => setActivePage(name)}
+                onClick={() => navigateTo(name)}
                 className={`flex w-full items-center gap-3 rounded-lg px-3 py-3 text-sm font-medium transition ${
                   activePage === name
                     ? 'bg-indigo-50 text-indigo-700'
@@ -137,7 +251,7 @@ function App() {
           </p>
 
           <button
-            onClick={() => setActivePage('Settings')}
+            onClick={() => navigateTo('Settings')}
             className={`flex w-full items-center gap-3 rounded-lg px-3 py-3 text-sm font-medium ${
               activePage === 'Settings'
                 ? 'bg-indigo-50 text-indigo-700'
@@ -149,7 +263,7 @@ function App() {
           </button>
 
           <button
-            onClick={() => setActivePage('Help & Support')}
+            onClick={() => navigateTo('Help & Support')}
             className="flex w-full items-center gap-3 rounded-lg px-3 py-3 text-sm font-medium text-slate-600 hover:bg-slate-50"
           >
             <CircleHelp size={18} />
@@ -170,7 +284,7 @@ function App() {
             </p>
 
             <button
-              onClick={() => setActivePage('API Playground')}
+              onClick={() => navigateTo('API Playground')}
               className="mt-3 text-xs font-semibold text-indigo-700 hover:underline"
             >
               Open Playground →
@@ -205,7 +319,29 @@ function App() {
             <h2 className="mt-1 text-lg font-semibold">{activePage}</h2>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 sm:gap-3">
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={goBack}
+                disabled={!canGoBack}
+                aria-label="Go back"
+                title="Go back"
+                className="flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                <ArrowLeft size={17} />
+              </button>
+              <button
+                type="button"
+                onClick={goForward}
+                disabled={!canGoForward}
+                aria-label="Go forward"
+                title="Go forward"
+                className="flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                <ArrowRight size={17} />
+              </button>
+            </div>
 
             <a
               href="https://github.com/shravanr793-Rare/team-api"
@@ -261,7 +397,7 @@ function App() {
                   </div>
 
                   <button
-                    onClick={() => setActivePage('API Playground')}
+                    onClick={() => navigateTo('API Playground')}
                     className="flex items-center justify-center gap-2 rounded-lg bg-indigo-600 px-5 py-3 text-sm font-semibold text-white shadow-sm hover:bg-indigo-700"
                   >
                     <Play size={16} />
@@ -326,7 +462,7 @@ function App() {
                   </div>
 
                   <button
-                    onClick={() => setActivePage('API Playground')}
+                    onClick={() => navigateTo('API Playground')}
                     className="text-sm font-semibold text-indigo-600 hover:text-indigo-800"
                   >
                     Explore all →
@@ -470,7 +606,7 @@ function App() {
                       title="Test an endpoint"
                       description="Run requests in the playground"
                       icon={Play}
-                      onClick={() => setActivePage('API Playground')}
+                      onClick={() => navigateTo('API Playground')}
                     />
 
                     <QuickAction
