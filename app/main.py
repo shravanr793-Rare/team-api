@@ -9,7 +9,7 @@ from app.routers.reverse import router as reverse_router
 from app.routers.wordcount import router as wordcount_router
 
 app = FastAPI(
-    title="Team API",
+    title="My API",
     description="A collaborative API project demonstrating CI/CD with Docker, GitHub Actions and Railway.",
     version="1.0.0"
 )
